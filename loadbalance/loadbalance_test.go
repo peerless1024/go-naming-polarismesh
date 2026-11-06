@@ -14,10 +14,15 @@
 package loadbalance
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"trpc.group/trpc-go/trpc-go"
+	"trpc.group/trpc-go/trpc-go/codec"
+	tlb "trpc.group/trpc-go/trpc-go/naming/loadbalance"
 	"trpc.group/trpc-go/trpc-go/naming/registry"
-
+	"trpc.group/trpc-go/trpc-naming-polarismesh/internal/polaris"
 	"trpc.group/trpc-go/trpc-naming-polarismesh/mock/mock_api"
 	"trpc.group/trpc-go/trpc-naming-polarismesh/mock/mock_loadbalancer"
 	"trpc.group/trpc-go/trpc-naming-polarismesh/mock/mock_model"
@@ -26,9 +31,14 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/polarismesh/polaris-go/pkg/config"
 	"github.com/polarismesh/polaris-go/pkg/model"
+	"github.com/polarismesh/polaris-go/pkg/model/local"
+	"github.com/polarismesh/polaris-go/pkg/model/pb"
 	"github.com/polarismesh/polaris-go/pkg/plugin/common"
+	"github.com/polarismesh/polaris-go/pkg/sdk"
+	apiservice "github.com/polarismesh/specification/source/go/api/v1/service_manage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,11 +68,22 @@ func TestSelect(t *testing.T) {
 	inst.EXPECT().GetWeight().Return(100).AnyTimes()
 	inst.EXPECT().GetHost().Return("host").AnyTimes()
 	inst.EXPECT().GetPort().Return(uint32(1003)).AnyTimes()
+	inst.EXPECT().GetNamespace().Return("default").AnyTimes()
+	inst.EXPECT().GetService().Return("service").AnyTimes()
+	inst.EXPECT().GetProtocol().Return("grpc").AnyTimes()
+	inst.EXPECT().GetCircuitBreakerStatus().Return(nil).AnyTimes()
 
 	plugin := mock_loadbalancer.NewMockLoadBalancer(ctrl)
 	plugin.EXPECT().ChooseInstance(gomock.Any(), gomock.Any()).Return(inst, nil).AnyTimes()
 
 	m := mock_api.NewMockSDKContext(ctrl)
+	sdkConfig := config.NewDefaultConfiguration([]string{"127.0.0.1:0"})
+	sdkConfig.GetConsumer().GetCircuitBreaker().SetEnable(false)
+	m.EXPECT().GetConfig().Return(sdkConfig).AnyTimes()
+	m.EXPECT().GetEngine().Return(&permissionEngine{
+		checkResult:      &model.CheckResult{Pass: true},
+		instancePass8000: true,
+	}).AnyTimes()
 	m.EXPECT().GetValueContext().Return(mock_model.NewMockValueContext(ctrl)).AnyTimes()
 
 	clustersMock := mock_model.NewMockServiceClusters(ctrl)
@@ -88,6 +109,124 @@ func TestSelect(t *testing.T) {
 
 	_, err = lb.Select("service", nil)
 	assert.NotNil(t, err)
+}
+
+func TestSelectAcquiresHalfOpenPermission(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	inst := mock_model.NewMockInstance(ctrl)
+	inst.EXPECT().GetMetadata().Return(map[string]string{}).AnyTimes()
+	inst.EXPECT().GetWeight().Return(100).AnyTimes()
+	inst.EXPECT().GetHost().Return("127.0.0.1").AnyTimes()
+	inst.EXPECT().GetPort().Return(uint32(8000)).AnyTimes()
+	inst.EXPECT().GetNamespace().Return("default").AnyTimes()
+	inst.EXPECT().GetService().Return("service").AnyTimes()
+	inst.EXPECT().GetProtocol().Return("grpc").AnyTimes()
+	status := model.NewHalfOpenStatus("probe", time.Now(), 1).(*model.HalfOpenStatus)
+	inst.EXPECT().GetCircuitBreakerStatus().Return(status).AnyTimes()
+
+	sdkConfig := config.NewDefaultConfiguration([]string{"127.0.0.1:0"})
+	sdkConfig.GetConsumer().GetCircuitBreaker().SetEnable(true)
+	m := mock_api.NewMockSDKContext(ctrl)
+	m.EXPECT().GetConfig().Return(sdkConfig).AnyTimes()
+	m.EXPECT().GetEngine().Return(&permissionEngine{
+		checkResult:      &model.CheckResult{Pass: true},
+		instancePass8000: true,
+	}).AnyTimes()
+
+	plugin := mock_loadbalancer.NewMockLoadBalancer(ctrl)
+	plugin.EXPECT().ChooseInstance(gomock.Any(), gomock.Any()).Return(inst, nil).Times(1)
+
+	clustersMock := mock_model.NewMockServiceClusters(ctrl)
+	clustersMock.EXPECT().GetServiceInstances().Return(mock_model.NewMockServiceInstances(ctrl)).AnyTimes()
+	lb := &WRLoadBalancer{sdkCtx: m, lb: plugin}
+	list := []*registry.Node{{
+		Metadata: map[string]interface{}{
+			"cluster":          model.NewCluster(clustersMock, nil),
+			"serviceInstances": mock_model.NewMockServiceInstances(ctrl),
+		},
+	}}
+
+	node, err := lb.Select("service", list)
+	require.NoError(t, err)
+	assert.Equal(t, "127.0.0.1:8000", node.Address)
+	assert.True(t, status.AcquirePermission(),
+		"an endpoint-shared status must not consume caller-specific quota")
+}
+
+func TestSelectRebuildsMethodResourceAfterInstanceFallback(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	svcKey := &model.ServiceKey{Namespace: "default", Service: "method-fallback-lb"}
+	newInstance := func(protocol string, port uint32) model.Instance {
+		return pb.NewInstanceInProto(&apiservice.Instance{
+			Id:       wrapperspb.String(protocol),
+			Host:     wrapperspb.String("127.0.0.1"),
+			Port:     wrapperspb.UInt32(port),
+			Protocol: wrapperspb.String(protocol),
+			Weight:   wrapperspb.UInt32(100),
+			Healthy:  wrapperspb.Bool(true),
+		}, svcKey, local.NewInstanceLocalValue())
+	}
+	grpcInst := newInstance("grpc", 8000)
+	httpInst := newInstance("http", 8001)
+	instances := model.NewDefaultServiceInstances(
+		model.ServiceInfo{Service: svcKey.Service, Namespace: svcKey.Namespace},
+		[]model.Instance{grpcInst, httpInst},
+	)
+	cluster := model.NewCluster(instances.GetServiceClusters(), nil)
+
+	sdkConfig := config.NewDefaultConfiguration([]string{"127.0.0.1:0"})
+	sdkConfig.GetConsumer().GetCircuitBreaker().SetEnable(true)
+	engine := &permissionEngine{checkResult: &model.CheckResult{Pass: true}}
+	m := mock_api.NewMockSDKContext(ctrl)
+	m.EXPECT().GetConfig().Return(sdkConfig).AnyTimes()
+	m.EXPECT().GetEngine().Return(engine).AnyTimes()
+
+	plugin := mock_loadbalancer.NewMockLoadBalancer(ctrl)
+	plugin.EXPECT().ChooseInstance(gomock.Any(), gomock.Any()).Return(grpcInst, nil).Times(1)
+	plugin.EXPECT().ChooseInstance(gomock.Any(), gomock.Any()).Return(httpInst, nil).Times(1)
+
+	lb := &WRLoadBalancer{sdkCtx: m, lb: plugin}
+	msg := trpc.Message(context.Background())
+	msg.WithClientRPCName("/review.Service/Call")
+	requestCtx := context.WithValue(context.Background(), codec.ContextKeyMessage, msg)
+	node, err := lb.Select(svcKey.Service, []*registry.Node{{
+		Metadata: map[string]interface{}{
+			"cluster":          cluster,
+			"serviceInstances": instances,
+		},
+	}}, tlb.WithContext(requestCtx))
+	require.NoError(t, err)
+
+	methodResource, ok := node.Metadata[polaris.MethodResourceMetadataKey].(*model.MethodResource)
+	require.True(t, ok)
+	require.Equal(t, "http", methodResource.Protocol)
+	require.Len(t, engine.methodResource, 2)
+	require.Equal(t, "grpc", engine.methodResource[0].(*model.MethodResource).Protocol)
+	require.Equal(t, "http", engine.methodResource[1].(*model.MethodResource).Protocol)
+}
+
+type permissionEngine struct {
+	sdk.Engine
+	checkResult      *model.CheckResult
+	instancePass8000 bool
+	methodResource   []model.Resource
+}
+
+func (e *permissionEngine) Check(resource model.Resource) (*model.CheckResult, error) {
+	switch res := resource.(type) {
+	case *model.ServiceResource:
+		return &model.CheckResult{Pass: true}, nil
+	case *model.InstanceResource:
+		return &model.CheckResult{Pass: e.instancePass8000 || res.GetNode().Port != 8000}, nil
+	case *model.MethodResource:
+		e.methodResource = append(e.methodResource, res)
+		return &model.CheckResult{Pass: true}, nil
+	}
+	return e.checkResult, nil
 }
 
 func TestAsPluginCfgs(t *testing.T) {

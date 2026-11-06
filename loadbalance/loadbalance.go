@@ -20,8 +20,11 @@ import (
 	"strconv"
 
 	"gopkg.in/yaml.v3"
+	"trpc.group/trpc-go/trpc-go/codec"
+	thttp "trpc.group/trpc-go/trpc-go/http"
 	"trpc.group/trpc-go/trpc-go/naming/loadbalance"
 	"trpc.group/trpc-go/trpc-go/naming/registry"
+	"trpc.group/trpc-go/trpc-naming-polarismesh/internal/polaris"
 
 	"github.com/polarismesh/polaris-go/api"
 	"github.com/polarismesh/polaris-go/pkg/config"
@@ -91,7 +94,7 @@ func New(ctx api.SDKContext, name string) (*WRLoadBalancer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("api sdk ctx get plugin for %s err: %w", name, err)
 	}
-	lb := loadBalancer.(loadbalancer.LoadBalancer)
+	lb := unwrapLoadBalancer(loadBalancer.(loadbalancer.LoadBalancer))
 	return &WRLoadBalancer{
 		sdkCtx: ctx,
 		lb:     lb,
@@ -118,14 +121,75 @@ func (wr *WRLoadBalancer) Select(serviceName string,
 	cluster := list[0].Metadata["cluster"].(*model.Cluster)
 	serviceInstances := list[0].Metadata["serviceInstances"].(model.ServiceInstances)
 	envKey := list[0].EnvKey
-
-	criteria := &loadbalancer.Criteria{
-		Cluster: cluster,
-		HashKey: []byte(opts.Key),
+	hashKey := []byte(opts.Key)
+	sourceService := list[0].Metadata[polaris.SourceServiceMetadataKey]
+	callerValue, hasCaller := list[0].Metadata[polaris.CallerServiceMetadataKey]
+	callerService := polaris.SourceServiceKey(callerValue)
+	if !hasCaller {
+		callerService = polaris.SourceServiceKey(sourceService)
 	}
-	inst, err := loadbalancer.ChooseInstance(wr.sdkCtx.GetValueContext(), wr.lb, criteria, serviceInstances)
+
+	lb := unwrapLoadBalancer(wr.lb)
+	criteria := loadbalancer.Criteria{HashKey: hashKey}
+	inst, err := polaris.ChooseInstanceCandidate(wr.sdkCtx, lb, cluster, serviceInstances, criteria)
 	if err != nil {
-		return nil, fmt.Errorf("choose instance err: %s", err.Error())
+		return nil, fmt.Errorf("choose instance err: %w", err)
+	}
+	serviceResource, err := polaris.InstanceServiceResource(inst, callerService)
+	if err != nil {
+		return nil, fmt.Errorf("build service circuit breaker resource err: %w", err)
+	}
+	pass, err := polaris.AcquireResourcePermission(wr.sdkCtx, serviceResource)
+	if err != nil {
+		return nil, fmt.Errorf("check service circuit breaker err: %w", err)
+	}
+	if !pass {
+		return nil, fmt.Errorf("service %s/%s denied by circuit breaker",
+			inst.GetNamespace(), inst.GetService())
+	}
+	methodResource, err := polaris.MethodResource(
+		serviceResource.GetService(), callerService, inst.GetProtocol(),
+		loadBalanceHTTPMethod(opts), loadBalanceMethodPath(opts))
+	if err != nil {
+		return nil, fmt.Errorf("build method circuit breaker resource err: %w", err)
+	}
+	if methodResource != nil {
+		pass, err = polaris.AcquireResourcePermission(wr.sdkCtx, methodResource)
+		if err != nil {
+			return nil, fmt.Errorf("check method circuit breaker err: %w", err)
+		}
+		if !pass {
+			return nil, fmt.Errorf("method %s denied by circuit breaker", methodResource.Path)
+		}
+	}
+	pass, err = polaris.AcquireInstancePermission(
+		wr.sdkCtx, inst, cluster.HasLimitedInstances, callerService)
+	if err != nil {
+		return nil, fmt.Errorf("check instance circuit breaker err: %w", err)
+	}
+	if !pass {
+		inst, err = polaris.ChooseAvailableInstance(
+			wr.sdkCtx, lb, cluster, serviceInstances, criteria, callerService)
+		if err != nil {
+			return nil, fmt.Errorf("choose available instance err: %w", err)
+		}
+		fallbackMethodResource, err := polaris.MethodResource(
+			serviceResource.GetService(), callerService, inst.GetProtocol(),
+			loadBalanceHTTPMethod(opts), loadBalanceMethodPath(opts))
+		if err != nil {
+			return nil, fmt.Errorf("build fallback method circuit breaker resource err: %w", err)
+		}
+		if !polaris.MethodResourcesEqual(methodResource, fallbackMethodResource) {
+			pass, err = polaris.AcquireResourcePermission(wr.sdkCtx, fallbackMethodResource)
+			if err != nil {
+				return nil, fmt.Errorf("check fallback method circuit breaker err: %w", err)
+			}
+			if !pass {
+				return nil, fmt.Errorf(
+					"method %s denied by circuit breaker", fallbackMethodResource.Path)
+			}
+		}
+		methodResource = fallbackMethodResource
 	}
 	var (
 		setName       string
@@ -146,11 +210,45 @@ func (wr *WRLoadBalancer) Select(serviceName string,
 		Weight:        inst.GetWeight(),
 		EnvKey:        envKey,
 		Metadata: map[string]interface{}{
-			"instance": inst,
+			"instance":                        inst,
+			polaris.SourceServiceMetadataKey:  sourceService,
+			polaris.CallerServiceMetadataKey:  callerService,
+			polaris.MethodResourceMetadataKey: methodResource,
+			polaris.AllowOpenMetadataKey:      cluster.HasLimitedInstances,
 		},
 	}
 
 	return node, nil
+}
+
+func loadBalanceMethodPath(opts *loadbalance.Options) string {
+	if opts.Ctx == nil {
+		return ""
+	}
+	msg := codec.Message(opts.Ctx)
+	if path := msg.ClientRPCName(); path != "" {
+		return path
+	}
+	return msg.CalleeMethod()
+}
+
+func loadBalanceHTTPMethod(opts *loadbalance.Options) string {
+	if opts.Ctx == nil {
+		return ""
+	}
+	msg := codec.Message(opts.Ctx)
+	switch header := msg.ClientReqHead().(type) {
+	case *thttp.ClientReqHeader:
+		return header.Method
+	}
+	return ""
+}
+
+func unwrapLoadBalancer(lb loadbalancer.LoadBalancer) loadbalancer.LoadBalancer {
+	if proxy, ok := lb.(*loadbalancer.Proxy); ok {
+		return proxy.LoadBalancer
+	}
+	return lb
 }
 
 // AsPluginCfgs parses yaml node to polaris mesh load balance configures.

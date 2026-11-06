@@ -35,6 +35,8 @@ type Config struct {
 	Namespace string
 	// ServiceName Service Name.
 	ServiceName string
+	// Version is the optional service instance version.
+	Version string
 	// BindAddress specifies reporting address.
 	BindAddress string
 	// PreferBindAddress gives the BindAddress higher priority over service TRPC's opts.Address when it is true.

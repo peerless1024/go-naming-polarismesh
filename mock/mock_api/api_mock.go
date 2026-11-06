@@ -12,6 +12,7 @@ import (
 	config "github.com/polarismesh/polaris-go/pkg/config"
 	model "github.com/polarismesh/polaris-go/pkg/model"
 	plugin "github.com/polarismesh/polaris-go/pkg/plugin"
+	sdk "github.com/polarismesh/polaris-go/pkg/sdk"
 )
 
 // MockSDKContext is a mock of SDKContext interface.
@@ -64,10 +65,10 @@ func (mr *MockSDKContextMockRecorder) GetConfig() *gomock.Call {
 }
 
 // GetEngine mocks base method.
-func (m *MockSDKContext) GetEngine() model.Engine {
+func (m *MockSDKContext) GetEngine() sdk.Engine {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEngine")
-	ret0, _ := ret[0].(model.Engine)
+	ret0, _ := ret[0].(sdk.Engine)
 	return ret0
 }
 
@@ -92,10 +93,10 @@ func (mr *MockSDKContextMockRecorder) GetPlugins() *gomock.Call {
 }
 
 // GetValueContext mocks base method.
-func (m *MockSDKContext) GetValueContext() model.ValueContext {
+func (m *MockSDKContext) GetValueContext() sdk.ValueContext {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetValueContext")
-	ret0, _ := ret[0].(model.ValueContext)
+	ret0, _ := ret[0].(sdk.ValueContext)
 	return ret0
 }
 
@@ -169,6 +170,36 @@ func (mr *MockConsumerAPIMockRecorder) GetAllInstances(arg0 interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllInstances", reflect.TypeOf((*MockConsumerAPI)(nil).GetAllInstances), arg0)
 }
 
+// GetBlockAllowRule mocks base method.
+func (m *MockConsumerAPI) GetBlockAllowRule(arg0 *api.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBlockAllowRule", arg0)
+	ret0, _ := ret[0].(*model.ServiceRuleResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBlockAllowRule indicates an expected call of GetBlockAllowRule.
+func (mr *MockConsumerAPIMockRecorder) GetBlockAllowRule(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBlockAllowRule", reflect.TypeOf((*MockConsumerAPI)(nil).GetBlockAllowRule), arg0)
+}
+
+// GetCircuitBreakerRule mocks base method.
+func (m *MockConsumerAPI) GetCircuitBreakerRule(arg0 *api.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCircuitBreakerRule", arg0)
+	ret0, _ := ret[0].(*model.ServiceRuleResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCircuitBreakerRule indicates an expected call of GetCircuitBreakerRule.
+func (mr *MockConsumerAPIMockRecorder) GetCircuitBreakerRule(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCircuitBreakerRule", reflect.TypeOf((*MockConsumerAPI)(nil).GetCircuitBreakerRule), arg0)
+}
+
 // GetInstances mocks base method.
 func (m *MockConsumerAPI) GetInstances(arg0 *api.GetInstancesRequest) (*model.InstancesResponse, error) {
 	m.ctrl.T.Helper()
@@ -184,6 +215,51 @@ func (mr *MockConsumerAPIMockRecorder) GetInstances(arg0 interface{}) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInstances", reflect.TypeOf((*MockConsumerAPI)(nil).GetInstances), arg0)
 }
 
+// GetLane mocks base method.
+func (m *MockConsumerAPI) GetLane(arg0 *api.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLane", arg0)
+	ret0, _ := ret[0].(*model.ServiceRuleResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLane indicates an expected call of GetLane.
+func (mr *MockConsumerAPIMockRecorder) GetLane(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLane", reflect.TypeOf((*MockConsumerAPI)(nil).GetLane), arg0)
+}
+
+// GetLosslessRule mocks base method.
+func (m *MockConsumerAPI) GetLosslessRule(arg0 *api.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLosslessRule", arg0)
+	ret0, _ := ret[0].(*model.ServiceRuleResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLosslessRule indicates an expected call of GetLosslessRule.
+func (mr *MockConsumerAPIMockRecorder) GetLosslessRule(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLosslessRule", reflect.TypeOf((*MockConsumerAPI)(nil).GetLosslessRule), arg0)
+}
+
+// GetNearbyRouteRule mocks base method.
+func (m *MockConsumerAPI) GetNearbyRouteRule(arg0 *api.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNearbyRouteRule", arg0)
+	ret0, _ := ret[0].(*model.ServiceRuleResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetNearbyRouteRule indicates an expected call of GetNearbyRouteRule.
+func (mr *MockConsumerAPIMockRecorder) GetNearbyRouteRule(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNearbyRouteRule", reflect.TypeOf((*MockConsumerAPI)(nil).GetNearbyRouteRule), arg0)
+}
+
 // GetOneInstance mocks base method.
 func (m *MockConsumerAPI) GetOneInstance(arg0 *api.GetOneInstanceRequest) (*model.OneInstanceResponse, error) {
 	m.ctrl.T.Helper()
@@ -197,6 +273,21 @@ func (m *MockConsumerAPI) GetOneInstance(arg0 *api.GetOneInstanceRequest) (*mode
 func (mr *MockConsumerAPIMockRecorder) GetOneInstance(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOneInstance", reflect.TypeOf((*MockConsumerAPI)(nil).GetOneInstance), arg0)
+}
+
+// GetRateLimitRule mocks base method.
+func (m *MockConsumerAPI) GetRateLimitRule(arg0 *api.GetServiceRuleRequest) (*model.ServiceRuleResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRateLimitRule", arg0)
+	ret0, _ := ret[0].(*model.ServiceRuleResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRateLimitRule indicates an expected call of GetRateLimitRule.
+func (mr *MockConsumerAPIMockRecorder) GetRateLimitRule(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRateLimitRule", reflect.TypeOf((*MockConsumerAPI)(nil).GetRateLimitRule), arg0)
 }
 
 // GetRouteRule mocks base method.
@@ -377,6 +468,21 @@ func (m *MockProviderAPI) Heartbeat(arg0 *api.InstanceHeartbeatRequest) error {
 func (mr *MockProviderAPIMockRecorder) Heartbeat(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Heartbeat", reflect.TypeOf((*MockProviderAPI)(nil).Heartbeat), arg0)
+}
+
+// LosslessRegister mocks base method.
+func (m *MockProviderAPI) LosslessRegister(arg0 *api.InstanceRegisterRequest) (*model.InstanceRegisterResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LosslessRegister", arg0)
+	ret0, _ := ret[0].(*model.InstanceRegisterResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LosslessRegister indicates an expected call of LosslessRegister.
+func (mr *MockProviderAPIMockRecorder) LosslessRegister(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LosslessRegister", reflect.TypeOf((*MockProviderAPI)(nil).LosslessRegister), arg0)
 }
 
 // Register mocks base method.

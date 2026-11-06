@@ -42,6 +42,7 @@ type Registry struct {
 	// Provider: public for user custom.
 	Provider api.ProviderAPI
 	cfg      *Config
+	sdkCtx   api.SDKContext
 	host     string
 	port     int
 	statuses chan healthcheck.Status
@@ -110,6 +111,10 @@ func (r *Registry) Register(_ string, opt ...registry.Option) error {
 }
 
 func (r *Registry) register() error {
+	metadata, err := r.buildRegisterMetadata()
+	if err != nil {
+		return err
+	}
 	req := &api.InstanceRegisterRequest{
 		InstanceRegisterRequest: model.InstanceRegisterRequest{
 			Namespace:    r.cfg.Namespace,
@@ -118,9 +123,13 @@ func (r *Registry) register() error {
 			Port:         r.port,
 			ServiceToken: r.cfg.ServiceToken,
 			Weight:       r.cfg.Weight,
-			Metadata:     r.cfg.Metadata,
+			Metadata:     metadata,
 			Location:     r.cfg.InstanceLocation,
 		},
+	}
+	if r.cfg.Version != "" {
+		version := r.cfg.Version
+		req.Version = &version
 	}
 	if !r.cfg.DisableHealthCheck {
 		req.SetTTL(r.cfg.TTL)
@@ -132,6 +141,69 @@ func (r *Registry) register() error {
 	plog.GetBaseLogger().Debugf("success to register instance1, id is %s\n", resp.InstanceID)
 	r.cfg.InstanceID = resp.InstanceID
 	return nil
+}
+
+func (r *Registry) buildRegisterMetadata() (map[string]string, error) {
+	metadata := cloneMetadata(r.cfg.Metadata)
+	provider, ok := getMetadataProvider(r.cfg.ServiceName)
+	if !ok {
+		if err := validateRegisterMetadata(metadata); err != nil {
+			return nil, fmt.Errorf("validate register metadata for service %q: %w", r.cfg.ServiceName, err)
+		}
+		return metadata, nil
+	}
+	for _, key := range reservedAgentMetadataKeys {
+		if _, exists := metadata[key]; exists {
+			return nil, fmt.Errorf(
+				"static register metadata for service %q contains reserved agent key %q while a metadata provider is registered",
+				r.cfg.ServiceName, key)
+		}
+	}
+	dynamic, err := provider.Metadata()
+	if err != nil {
+		return nil, fmt.Errorf("metadata provider for service %q failed: %w", r.cfg.ServiceName, err)
+	}
+	if metadata == nil && len(dynamic) > 0 {
+		metadata = make(map[string]string, len(dynamic))
+	}
+	for key, value := range dynamic {
+		metadata[key] = value
+	}
+	if err := validateRegisterMetadata(metadata); err != nil {
+		return nil, fmt.Errorf("validate register metadata for service %q: %w", r.cfg.ServiceName, err)
+	}
+	return metadata, nil
+}
+
+// SDKContext returns the Polaris SDK context backing this registry.
+func (r *Registry) SDKContext() api.SDKContext {
+	if r == nil {
+		return nil
+	}
+	if r.sdkCtx != nil {
+		return r.sdkCtx
+	}
+	if r.Provider != nil {
+		return r.Provider.SDKContext()
+	}
+	return nil
+}
+
+// Version returns the instance version configured for this registry.
+func (r *Registry) Version() string {
+	if r == nil || r.cfg == nil {
+		return ""
+	}
+	return r.cfg.Version
+}
+
+// FromFramework returns the Polaris registry bound to service by tRPC-Go.
+func FromFramework(service string) (*Registry, bool) {
+	r, ok := registry.Get(service).(*Registry)
+	if !ok || r == nil {
+		return nil, false
+	}
+	return r, true
 }
 
 func (r *Registry) heartBeats() {

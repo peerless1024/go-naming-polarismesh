@@ -24,6 +24,7 @@ import (
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/polarismesh/polaris-go/pkg/model"
 	"github.com/polarismesh/polaris-go/pkg/plugin/servicerouter"
+	"github.com/polarismesh/polaris-go/pkg/sdk"
 	apimodel "github.com/polarismesh/specification/source/go/api/v1/model"
 	"github.com/polarismesh/specification/source/go/api/v1/traffic_manage"
 	"github.com/stretchr/testify/assert"
@@ -54,12 +55,14 @@ func TestInstanceToNode(t *testing.T) {
 	clustersMock := mock_model.NewMockServiceClusters(ctrl)
 	clusters := model.NewCluster(clustersMock, nil)
 	sr := ServiceRouter{cfg: &Config{}}
-	nodes := sr.instanceToNode([]model.Instance{inst}, "env", clusters, serviceInstances)
+	source := &model.ServiceInfo{Namespace: "default", Service: "caller"}
+	nodes := sr.instanceToNode([]model.Instance{inst}, source, "env", clusters, serviceInstances)
 	assert.Len(t, nodes, 1)
 	node := nodes[0]
 	assert.Equal(t, node.EnvKey, "env")
 	assert.Equal(t, node.Metadata["serviceInstances"], serviceInstances)
 	assert.Equal(t, node.Metadata["cluster"], clusters)
+	assert.Equal(t, source, node.Metadata["sourceService"])
 }
 
 func TestInstanceToNode_ReturnAll(t *testing.T) {
@@ -79,7 +82,7 @@ func TestInstanceToNode_ReturnAll(t *testing.T) {
 	clustersMock := mock_model.NewMockServiceClusters(ctrl)
 	clusters := model.NewCluster(clustersMock, nil)
 	sr := ServiceRouter{cfg: &Config{NeedReturnAllNodes: true}}
-	nodes := sr.instanceToNode(instances, "env", clusters, serviceInstances)
+	nodes := sr.instanceToNode(instances, nil, "env", clusters, serviceInstances)
 	assert.Len(t, nodes, 10)
 	node := nodes[0]
 	assert.Equal(t, node.EnvKey, "env")
@@ -100,7 +103,7 @@ func TestFilterWithoutBoundRules(t *testing.T) {
 	defer ctrl.Finish()
 
 	sdkCtx := mock_api.NewMockSDKContext(ctrl)
-	sdkCtx.EXPECT().GetValueContext().Return(model.NewValueContext()).AnyTimes()
+	sdkCtx.EXPECT().GetValueContext().Return(sdk.NewValueContext()).AnyTimes()
 	consumer := mock_api.NewMockConsumerAPI(ctrl)
 	consumer.EXPECT().GetRouteRule(gomock.Any()).Return(nil, nil).AnyTimes()
 
@@ -109,7 +112,7 @@ func TestFilterWithoutBoundRules(t *testing.T) {
 		servicerouterGetFilterInstances = oldServicerouterGetFilterInstances
 	}()
 	inst := mock_model.NewMockInstance(ctrl)
-	servicerouterGetFilterInstances = func(model.ValueContext, []servicerouter.ServiceRouter,
+	servicerouterGetFilterInstances = func(sdk.ValueContext, []servicerouter.ServiceRouter,
 		*servicerouter.RouteInfo, model.ServiceInstances) ([]model.Instance,
 		*model.Cluster, *model.ServiceInfo, error) {
 		return []model.Instance{inst}, nil, nil, nil
@@ -141,7 +144,7 @@ func TestFilterBoundRules(t *testing.T) {
 	defer ctrl.Finish()
 
 	sdkCtx := mock_api.NewMockSDKContext(ctrl)
-	sdkCtx.EXPECT().GetValueContext().Return(model.NewValueContext()).AnyTimes()
+	sdkCtx.EXPECT().GetValueContext().Return(sdk.NewValueContext()).AnyTimes()
 	consumer := mock_api.NewMockConsumerAPI(ctrl)
 	consumer.EXPECT().GetRouteRule(gomock.Any()).Return(nil, nil).AnyTimes()
 
@@ -158,7 +161,7 @@ func TestFilterBoundRules(t *testing.T) {
 		servicerouterGetFilterInstances = odlServicerouterGetFilterInstances
 	}()
 	inst := mock_model.NewMockInstance(ctrl)
-	servicerouterGetFilterInstances = func(model.ValueContext, []servicerouter.ServiceRouter,
+	servicerouterGetFilterInstances = func(sdk.ValueContext, []servicerouter.ServiceRouter,
 		*servicerouter.RouteInfo, model.ServiceInstances) ([]model.Instance,
 		*model.Cluster, *model.ServiceInfo, error) {
 		return []model.Instance{inst}, nil, nil, nil

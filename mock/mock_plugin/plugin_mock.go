@@ -9,9 +9,9 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	config "github.com/polarismesh/polaris-go/pkg/config"
-	model "github.com/polarismesh/polaris-go/pkg/model"
 	plugin "github.com/polarismesh/polaris-go/pkg/plugin"
 	common "github.com/polarismesh/polaris-go/pkg/plugin/common"
+	sdk "github.com/polarismesh/polaris-go/pkg/sdk"
 )
 
 // MockManager is a mock of Manager interface.
@@ -95,6 +95,21 @@ func (mr *MockManagerMockRecorder) GetPluginById(arg0 interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPluginById", reflect.TypeOf((*MockManager)(nil).GetPluginById), arg0)
 }
 
+// GetPlugins mocks base method.
+func (m *MockManager) GetPlugins(arg0 common.Type) ([]plugin.Plugin, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPlugins", arg0)
+	ret0, _ := ret[0].([]plugin.Plugin)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPlugins indicates an expected call of GetPlugins.
+func (mr *MockManagerMockRecorder) GetPlugins(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPlugins", reflect.TypeOf((*MockManager)(nil).GetPlugins), arg0)
+}
+
 // GetPluginsByType mocks base method.
 func (m *MockManager) GetPluginsByType(arg0 common.Type) []string {
 	m.ctrl.T.Helper()
@@ -110,7 +125,7 @@ func (mr *MockManagerMockRecorder) GetPluginsByType(arg0 interface{}) *gomock.Ca
 }
 
 // InitPlugins mocks base method.
-func (m *MockManager) InitPlugins(arg0 plugin.InitContext, arg1 []common.Type, arg2 model.Engine, arg3 func() error) error {
+func (m *MockManager) InitPlugins(arg0 plugin.InitContext, arg1 []common.Type, arg2 sdk.Engine, arg3 func() error) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InitPlugins", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)

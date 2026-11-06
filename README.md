@@ -12,6 +12,20 @@ English | [中文](README.zh_CN.md)
 This Plugin consists of Service Registry, Service Discovery, Load Balance and Circuit Breaker.
 You can integrate it to your project quickly by yaml config.
 
+Runnable Go examples are in [examples](./examples). Start with the
+[HelloWorld example](./examples/helloworld): it has a proto contract, generated
+tRPC stubs, a server, a client and separate Polaris YAML files. Its client shows
+both supported naming paths. The broader suite covers dynamic metadata, load
+balancing, circuit-breaker failover, metadata routing and multi-context
+isolation. A Polaris address is always supplied at runtime.
+
+Every runnable example under `examples/` has a real Polaris `verify.sh` entry.
+Use `examples/verify_all.sh --polaris-server <host>` to run the full suite.
+Verification leaves processes and resources for inspection; use
+`examples/cleanup.sh` to stop processes and
+`examples/cleanup.sh --delete-service --polaris-server <host>` to remove remote
+services and rules.
+
 ## How to Use
 
 Import naming-polarismesh plugin.
@@ -30,7 +44,7 @@ import _ "trpc.group/trpc-go/trpc-naming-polarismesh"
 
 func main() {
     opts := []client.Option{
-    // namespce, use current env namespace on missing.
+    // namespace, use current env namespace on missing.
     client.WithNamespace("Development"),
     client.WithServiceName("trpc.app.server.service"),
     }
@@ -88,6 +102,36 @@ func main() {
 
 [link](./registry)
 
+### Dynamic Registry Metadata
+
+Use `registry.RegisterMetadataProvider` for metadata produced at runtime. The provider is keyed by
+service name, is called during registration, and fails registration if it returns an error.
+
+```go
+import polarisregistry "trpc.group/trpc-go/trpc-naming-polarismesh/registry"
+
+s := trpc.NewServer()
+provider := polarisregistry.MetadataProviderFunc(func() (map[string]string, error) {
+    return map[string]string{
+        "ai-agent-name":  "customer-agent",
+        "a2a.agent.card": agentCardJSON,
+        "a2a.transport":  "JSONRPC",
+        "a2a.path":       "/a2a",
+    }, nil
+})
+if err := polarisregistry.RegisterMetadataProvider("customer-agent", provider); err != nil {
+    return err
+}
+defer polarisregistry.UnregisterMetadataProvider("customer-agent")
+if err := s.Serve(); err != nil {
+    return err
+}
+```
+
+Register the provider before `Serve`. For adapters that need the same Polaris client, call
+`FromFramework(service)` and reuse `Registry.SDKContext()` instead of creating another SDK context.
+See [registry/README.md](./registry/README.md) for merge rules and lifecycle details.
+
 ### Load Balance
 
 [link](./loadbalance)
@@ -128,6 +172,7 @@ plugins:  # Plugin configurations.
       # service:  # Services to be registered.
       #   - name: trpc.server.Service1  # Service name, should keep consistent with service in server config in trpc_go.yaml.
       #     namespace: Development  # The namespace this service belongs to.
+      #     version: v1.2.3  # Optional instance version.
       #     # (Optional) Used to heartbeat or unregister.
       #     # When register_self is true, this config has no effect, the plugin will use returned instance_id of register to overwrite config.
       #     # if register_self is false, instance_id cannot be missing.
@@ -195,6 +240,12 @@ plugins:  # Plugin configurations.
       #     metricNumBuckets: 5  # The zie of buckets to stat error rate.
       #     metricStatTimeWindow: 1m0s  # The statistic period for error rate, default as 1min.
       #     requestVolumeThreshold: 10  # The threshold to trigger error rate circuit breaker, default as 10.
+      #     Polaris SDK 1.7.x implements both strategies with the composite plugin.
+      #     Legacy errorCount/errorRate chain names are accepted and normalized to composite.
+#     Configure both names together; a single legacy strategy is rejected because composite
+#     always enables both default triggers.
+      #     The composite plugin has one error-rate interval, so errorCount.metricStatTimeWindow
+      #     must be omitted or equal to errorRate.metricStatTimeWindow.
       # service_router:
       #   nearby_matchlevel: zone  # The level of nearby match router, one of region, zone or campus, default as zone.
       #   # The minimum threshold of healthy instances to trigger ALL DIE IS ALIVE.
@@ -518,7 +569,7 @@ which result in the difference of `WithServiceName` and `WithTarget`:
 | use original metadata to route(except 'env' and 'set')  |           <font color="green">Y</font>           |        <font color="green">Y</font>         |            <font color="red">N</font>             |          <font color="red">N</font>          |
 | use target metadata to route(except 'env' and 'set')    |            <font color="red">N</font>            |        <font color="green">Y</font>         |            <font color="red">N</font>             |         <font color="green">Y</font>         |
 | use `client.WithEnvKey` to set original metadata['key'] |           <font color="green">Y</font>           |         <font color="red">N</font>          |            <font color="red">N</font>             |          <font color="red">N</font>          |
-| use `client.WithEnvTransfer` to reoute                  |           <font color="green">Y</font>           |         <font color="red">N</font>          |            <font color="red">N</font>             |          <font color="red">N</font>          |
+| use `client.WithEnvTransfer` to reroute                 |           <font color="green">Y</font>           |         <font color="red">N</font>          |            <font color="red">N</font>             |          <font color="red">N</font>          |
 | canary router                                           |           <font color="green">Y</font>           |        <font color="green">Y</font>         |           <font color="green">Y</font>            |         <font color="green">Y</font>         |
 | set router                                              |           <font color="green">Y</font>           |         <font color="red">N</font>          |           <font color="green">Y</font>            |          <font color="red">N</font>          |
 

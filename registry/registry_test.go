@@ -14,6 +14,7 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ func TestFactoryRegistry(t *testing.T) {
 	defer c.Finish()
 	err := register(
 		mock_api.NewMockProviderAPI(c),
+		nil,
 		&FactoryConfig{
 			Services: []Service{
 				{
@@ -123,6 +125,8 @@ func TestRegistryInstanceLocation(t *testing.T) {
 				require.Equal(t, region, instance.Location.Region)
 				require.Equal(t, zone, instance.Location.Zone)
 				require.Equal(t, campus, instance.Location.Campus)
+				require.NotNil(t, instance.Version)
+				require.Equal(t, "v1.2.3", *instance.Version)
 				return &model.InstanceRegisterResponse{InstanceID: "instance_id"}, nil
 			}).Times(1)
 		return mocked
@@ -141,6 +145,7 @@ service:
   - name: %s
     token: "xxx"
     namespace: Development
+    version: v1.2.3
     bind_address: 127.0.0.1:8080
 `, region, zone, campus, t.Name())), &node))
 	require.Nil(t, (&RegistryFactory{}).Setup("polarismesh", &plugin.YamlNodeDecoder{Node: &node}))
@@ -230,6 +235,97 @@ service:
 	require.Nil(t, (&RegistryFactory{}).Setup("polarismesh", &plugin.YamlNodeDecoder{Node: &node}))
 	r := registry.Get(t.Name())
 	require.Nil(t, r.Register(t.Name()))
+}
+
+func TestRegisterMergesMetadataAndVersion(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := t.Name()
+	require.NoError(t, RegisterMetadataProvider(service, MetadataProviderFunc(func() (map[string]string, error) {
+		return map[string]string{
+			"env":           "dynamic",
+			"ai-agent-name": "customer-agent",
+		}, nil
+	})))
+	defer UnregisterMetadataProvider(service)
+
+	providerAPI := mock_api.NewMockProviderAPI(ctrl)
+	providerAPI.EXPECT().Register(gomock.Any()).DoAndReturn(
+		func(req *api.InstanceRegisterRequest) (*model.InstanceRegisterResponse, error) {
+			require.Equal(t, "dynamic", req.Metadata["env"])
+			require.Equal(t, "orders", req.Metadata["business"])
+			require.Equal(t, "customer-agent", req.Metadata["ai-agent-name"])
+			require.NotNil(t, req.Version)
+			require.Equal(t, "v2.0.0", *req.Version)
+			return &model.InstanceRegisterResponse{InstanceID: "instance-id"}, nil
+		}).Times(1)
+
+	static := map[string]string{"env": "static", "business": "orders"}
+	r := &Registry{
+		cfg: &Config{
+			EnableRegister: true,
+			ServiceName:    service,
+			Version:        "v2.0.0",
+			Metadata:       static,
+		},
+		Provider: providerAPI,
+	}
+	require.NoError(t, r.register())
+	require.Equal(t, "static", static["env"])
+}
+
+func TestRegisterProviderFailurePreventsRegistrationAndHeartbeat(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := t.Name()
+	providerErr := errors.New("agent card unavailable")
+	require.NoError(t, RegisterMetadataProvider(service, MetadataProviderFunc(func() (map[string]string, error) {
+		return nil, providerErr
+	})))
+	defer UnregisterMetadataProvider(service)
+
+	providerAPI := mock_api.NewMockProviderAPI(ctrl)
+	r := &Registry{
+		cfg: &Config{
+			EnableRegister: true,
+			ServiceName:    service,
+			BindAddress:    "127.0.0.1:8080",
+		},
+		Provider: providerAPI,
+		statuses: make(chan healthcheck.Status, 1),
+	}
+	err := r.Register("")
+	require.ErrorIs(t, err, providerErr)
+}
+
+func TestRegistrySDKContextAndFromFramework(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sdkCtx := mock_api.NewMockSDKContext(ctrl)
+	r := &Registry{sdkCtx: sdkCtx, cfg: &Config{Version: "1.2.3"}}
+	require.Same(t, sdkCtx, r.SDKContext())
+	require.Equal(t, "1.2.3", r.Version())
+
+	service := t.Name()
+	registry.Register(service, r)
+	got, ok := FromFramework(service)
+	require.True(t, ok)
+	require.Same(t, r, got)
+	require.Same(t, sdkCtx, got.SDKContext())
+
+	missing, ok := FromFramework(service + "-missing")
+	require.False(t, ok)
+	require.Nil(t, missing)
+
+	otherService := service + "-other"
+	registry.Register(otherService, &registry.NoopRegistry{})
+	other, ok := FromFramework(otherService)
+	require.False(t, ok)
+	require.Nil(t, other)
+	require.Nil(t, (*Registry)(nil).SDKContext())
 }
 
 type provider struct {

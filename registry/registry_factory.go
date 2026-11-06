@@ -61,6 +61,7 @@ type ClusterService struct {
 type Service struct {
 	Namespace         string            `yaml:"namespace"`
 	ServiceName       string            `yaml:"name"`
+	Version           string            `yaml:"version"`
 	Token             string            `yaml:"token"`
 	InstanceID        string            `yaml:"instance_id"`
 	Weight            *int              `yaml:"weight"`
@@ -94,14 +95,16 @@ func (f *RegistryFactory) Setup(name string, configDec plugin.Decoder) error {
 	}
 	if conf.Debug {
 		log.Debug("set polaris mesh log level debug")
-		plog.GetBaseLogger().SetLogLevel(plog.DebugLog)
+		if err := plog.GetBaseLogger().SetLogLevel(plog.DebugLog); err != nil {
+			return fmt.Errorf("set polaris mesh log level debug: %w", err)
+		}
 	}
 	sdkCtx, err := newSDKCtx(conf)
 	if err != nil {
 		return fmt.Errorf("create new provider failed: err %w", err)
 	}
 	f.sdkCtx = sdkCtx
-	return register(api.NewProviderAPIByContext(sdkCtx), conf)
+	return register(api.NewProviderAPIByContext(sdkCtx), sdkCtx, conf)
 }
 
 // FlexDependsOn makes sure that register is initialized after selector,
@@ -151,13 +154,14 @@ func newSDKCtx(cfg *FactoryConfig) (api.SDKContext, error) {
 	return api.InitContextByConfig(c)
 }
 
-func register(provider api.ProviderAPI, conf *FactoryConfig) error {
+func register(provider api.ProviderAPI, sdkCtx api.SDKContext, conf *FactoryConfig) error {
 	for _, service := range conf.Services {
 		cfg := &Config{
 			Protocol:           conf.Protocol,
 			EnableRegister:     conf.EnableRegister,
 			HeartBeat:          conf.HeartbeatInterval / 1000,
 			ServiceName:        service.ServiceName,
+			Version:            service.Version,
 			Namespace:          service.Namespace,
 			ServiceToken:       service.Token,
 			InstanceID:         service.InstanceID,
@@ -172,6 +176,7 @@ func register(provider api.ProviderAPI, conf *FactoryConfig) error {
 		if err != nil {
 			return fmt.Errorf("create new registry for service %s failed: err %w", service.ServiceName, err)
 		}
+		reg.sdkCtx = sdkCtx
 		registry.Register(service.ServiceName, reg)
 	}
 	return nil

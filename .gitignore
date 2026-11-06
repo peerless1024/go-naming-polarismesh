@@ -1,0 +1,13 @@
+/.agents/
+/specs/
+/examples/**/.build/
+/examples/**/.logs/
+/examples/**/.state/
+/examples/**/.*-pids
+/examples/**/.polaris-cache/
+/examples/**/polaris/
+
+# Polaris Go SDK runtime logs and local cache
+/**/polaris/
+!/internal/polaris/
+!/internal/polaris/**

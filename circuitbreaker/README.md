@@ -38,3 +38,11 @@ selector:
         # The threshold of requests to trigger errorRate, default as 10.
         requestVolumeThreshold: 10
 ```
+
+Polaris SDK 1.7.x implements `errorCount` and `errorRate` with the `composite` plugin. The legacy
+chain names are accepted and normalized to `composite`. Because `composite` has one error-rate
+interval, `errorCount.metricStatTimeWindow` must be omitted or match
+`errorRate.metricStatTimeWindow`.
+Because `composite` always enables both default triggers, configure `errorCount` and `errorRate`
+together. A single legacy strategy is rejected during initialization instead of being silently
+changed into a dual-strategy breaker.

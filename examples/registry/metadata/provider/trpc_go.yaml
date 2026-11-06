@@ -1,0 +1,30 @@
+global:
+  namespace: ${POLARIS_NAMESPACE}
+  env_name: registry-metadata
+
+server:
+  app: examples
+  server: registry-metadata
+  service:
+    - name: ${POLARIS_SERVICE}
+      ip: ${PROVIDER_HOST}
+      port: ${PROVIDER_PORT}
+      network: tcp
+      protocol: trpc
+      registry: polarismesh
+      timeout: 3000
+
+plugins:
+  registry:
+    polarismesh:
+      register_self: true
+      heartbeat_interval: 3000
+      protocol: grpc
+      address_list: ${POLARIS_SERVER}:${POLARIS_GRPC_PORT}
+      service:
+        - name: ${POLARIS_SERVICE}
+          namespace: ${POLARIS_NAMESPACE}
+          version: ${POLARIS_VERSION}
+          weight: 100
+          metadata:
+            registry.static: provider-yaml
